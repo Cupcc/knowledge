@@ -2,6 +2,7 @@ import { defineConfig } from 'vitepress'
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
+  base: '/knowledge/',
   lang: 'zh-CN',
   title: 'AI 学习博客',
   description: '记录 AI 基础、实战案例与工具方法的学习博客。',
