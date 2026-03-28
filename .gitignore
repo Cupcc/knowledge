@@ -53,6 +53,6 @@ $RECYCLE.BIN/
 
 # VitePress 构建产物
 cache/
-.vitepress/dist/
-.vitepress/cache/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
 

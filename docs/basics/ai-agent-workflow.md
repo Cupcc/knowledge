@@ -1,6 +1,18 @@
+---
+title: AI Coding Agent 编排架构
+description: 从角色体系、知识管理到编排工作流，系统梳理 AI Coding Agent 的协作设计。
+---
+
 # AI Coding Agent 编排架构设计
 
-基于 Cursor IDE + Claude 的多智能体编排架构实践笔记。本文记录了在真实 NestJS WMS 项目中逐步演进出的 Agent 协作体系: 从角色划分、知识管理到工作流编排的完整设计思路。本文中的 `workspace` 定位已对齐为"决策与 Draft 工作区"，不再只是狭义的决策日志目录。
+基于 Cursor IDE + Claude/GPT 的多智能体编排架构实践笔记。本文记录了在真实 NestJS WMS 项目中逐步演进出的 Agent 协作体系: 从角色划分、知识管理到工作流编排的完整设计思路。
+
+> 当前状态：已完成详细版  
+> 阅读建议：建议先读完 [大模型基础认知](/basics/llm-overview) 和 [Prompt Engineering 入门](/basics/prompt-engineering)，再阅读本文。
+
+## 先看结论
+
+如果把大模型看成能力底座，那么 Agent 更像是在这个底座上叠加“任务拆解、工具调用、状态管理、验证与协作机制”的系统层。本文的重点，不是单个 Prompt，而是如何把多个角色、文档、验证步骤和经验沉淀组织成一个可持续迭代的工作流。
 
 ## 1. 设计哲学
 
@@ -113,7 +125,7 @@ review → fix 是一个修复循环，不是停止点。只有 reviewer 报告�
 
 ### 3.3 需求与 Workspace 驱动
 
-非轻量任务仍遵循需求先行，但 `workspace` 已升级为正式的"工作交代区 + 探索草稿区"。它既服务人类决策，也作为 AI 恢复上下文和判断下一步的入口。
+非轻量任务仍遵循需求先行，`workspace` 作为正式的"工作交代区 + 探索草稿区"，既服务人类决策，也作为 AI 恢复上下文和判断下一步的入口。
 
 ```text
 docs/requirements/*.md        正式需求真源（用户需求 + 当前进展 + 待确认）
@@ -308,7 +320,7 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 
 ### 8.3 工作区（Workspace）
 
-Workspace 是独立于 requirement 和 task 的第三层，但它的定位已经从"纯决策空间"演进为"决策与 Draft 工作区"。它既服务人类决策者，也服务 AI 恢复上下文和继续推进工作。核心目标是: **让人类快速理解全局，让 AI 不依赖聊天记忆继续工作。**
+Workspace 是独立于 requirement 和 task 的第三层，定位为"决策与 Draft 工作区"。它既服务人类决策者，也服务 AI 恢复上下文和继续推进工作。核心目标是: **让人类快速理解全局，让 AI 不依赖聊天记忆继续工作。**
 
 #### 8.3.1 三层定位
 
@@ -440,7 +452,7 @@ Workspace 引用 requirement doc 和 task doc，但不重复它们的职责:
 - Task 负责执行 brief、验证、review、恢复点
 - Workspace 负责全局入口、工作交代、探索草稿、决策支撑和归档溯源
 
-换句话说，Workspace 的独特价值不再只是 trade-off 分析，还包括:
+换句话说，Workspace 的独特价值在于:
 
 - 让人类快速看懂"现在发生了什么"
 - 让 AI 快速恢复"下一步该做什么"
