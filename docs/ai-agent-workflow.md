@@ -1,6 +1,6 @@
 # AI Coding Agent 编排架构设计
 
-基于 Cursor IDE + Claude 的多智能体编排架构实践笔记。本文记录了在真实 NestJS WMS 项目中逐步演进出的 Agent 协作体系——从角色划分、知识管理到工作流编排的完整设计思路。
+基于 Cursor IDE + Claude 的多智能体编排架构实践笔记。本文记录了在真实 NestJS WMS 项目中逐步演进出的 Agent 协作体系: 从角色划分、知识管理到工作流编排的完整设计思路。本文中的 `workspace` 定位已对齐为"决策与 Draft 工作区"，不再只是狭义的决策日志目录。
 
 ## 1. 设计哲学
 
@@ -74,7 +74,7 @@
 
 ### 3.1 双通道分流
 
-```
+```text
 用户请求
    ↓
  [分流判断]
@@ -95,7 +95,7 @@
 
 ### 3.2 重型编排流程
 
-```
+```text
 1. plan        Planner 调研、拆解任务、撰写执行简报
                  ↓
 2. code        Coder 按简报实施、产出代码变更
@@ -111,27 +111,42 @@
 
 review → fix 是一个修复循环，不是停止点。只有 reviewer 报告所有 blocking 和 important 发现已清零，才能推进到 commit。
 
-### 3.3 需求驱动
+### 3.3 需求与 Workspace 驱动
 
-非轻量任务遵循需求先行：
+非轻量任务仍遵循需求先行，但 `workspace` 已升级为正式的"工作交代区 + 探索草稿区"。它既服务人类决策，也作为 AI 恢复上下文和判断下一步的入口。
 
 ```text
-docs/requirements/*.md        用户需求（意图 + 确认状态 + 执行状态）
+docs/requirements/*.md        正式需求真源（用户需求 + 当前进展 + 待确认）
          ↓
-docs/workspace/<workflow>/    决策工作区（人类决策支持）
+docs/workspace/DASHBOARD.md   全局入口（当前状态 + 需要你确认的 + AI 待办）
+         ↓
+docs/workspace/<workflow>/    工作流工作区（README + draft + decisions）
          ↓
 docs/tasks/*.md               任务执行简报（AI 自主规划区）
          ↓
 代码实施 + 验证
          ↓
-同步进展回需求文档 + 决策发现写入工作区
+同步进展回 requirement + Dashboard/README/draft/decisions
 ```
 
-需求文档记录：用户需求、阶段进度、当前状态、阻塞项、下一步。
+Requirement 文档记录: `用户需求`、`当前进展`、`待确认`，是正式口径和确认状态的真源。
 
-工作区记录：进展叙事、待决策项（选项 + trade-off）、已决策日志、辅助数据/图表。
+Workspace 记录:
 
-任务文档记录：执行范围、实施步骤、验证状态、审查结论、恢复点。
+- `DASHBOARD.md`: 全局当前状态、待用户确认项、AI 待办、活跃工作流、已归档工作流
+- 工作流 `README.md`: 面向人类的当前状况、阶段、背景、里程碑、资产索引
+- `draft.md`: 头脑风暴、意图假设、澄清过程、对话留痕
+- `decisions.md`: 待决策项与已决策日志，保持结论化和可追溯
+- `*-explainer.md`: 对复杂概念或 trade-off 的详细解释，供 `decisions.md` 链接引用
+
+Task 文档记录: 执行范围、实施步骤、验证状态、审查结论、恢复点。
+
+关键边界:
+
+- `draft.md` 可以承接探索期草稿，但不是 requirement 的替代品
+- 发给用户确认的问题，应从 `draft.md` 提炼回 requirement 的 `待确认`
+- 已明确的方案结论写入 `decisions.md`
+- 执行计划、验证、review 结论仍属于 task doc
 
 ## 4. 知识管理体系
 
@@ -150,13 +165,13 @@ L1  docs/tasks/*.md                  任务状态（单任务生命周期）
 此外还有两个正交层，不属于知识成熟度阶梯，但在编排中不可或缺：
 
 ```text
-docs/workspace/**                    决策工作区（人类决策支持、富媒体）
+docs/workspace/**                    决策与 Draft 工作区（人类决策支持 + AI 恢复上下文）
 docs/requirements/*.md               用户交互层（意图 + 状态）
 ```
 
 ### 4.2 知识生命周期
 
-```
+```text
 任务执行中发现经验
        ↓
   docs/playbooks/{domain}/playbook.md    追加文字条目（成熟度: 初步观察）
@@ -212,24 +227,27 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 
 编排者收到 handoff 后：
 
-- 执行进展 → 同步到需求文档
-- 决策相关发现 → 评估后写入工作区 `docs/workspace/<workflow>/decisions.md`
+- 执行进展 → 同步到 requirement 的 `当前进展`
+- 需要用户决策的事项 → 写入 `docs/workspace/<workflow>/decisions.md`
+- 值得持久化的探索草稿 → 写入 `docs/workspace/<workflow>/draft.md`
+- 工作流状态变化 → 更新 `docs/workspace/DASHBOARD.md`
 - 对话结束前 → 将续接状态写入 task doc，确保下一个会话能无损恢复
 
 ### 5.3 跨会话续接
 
 当用户说"继续"时：
 
-1. 查找现有 `docs/tasks/*.md`
-2. 读取关联的 requirement doc、fix-checklist、报告文件
-3. 重建：当前范围、已完成步骤、已通过验证、剩余阻塞、下一个安全动作
-4. 不从头重新规划，除非文档过时或用户明确要求
+1. 先读取 `docs/workspace/DASHBOARD.md`
+2. 定位对应 `docs/workspace/<workflow>/README.md`，必要时补读 `draft.md` / `decisions.md`
+3. 再读取关联的 requirement doc、task doc、fix-checklist、报告文件
+4. 重建：当前范围、已完成步骤、已通过验证、剩余阻塞、下一个安全动作
+5. 不从头重新规划，除非文档过时或用户明确要求
 
 ## 6. API 与依赖工作流
 
 ### 6.1 四级查找顺序
 
-```
+```text
 1. 本地版本确认    package.json + pnpm-lock.yaml
        ↓
 2. 本地参考文档    docs/dependencies/<slug>.md（需 Refresh status 已验证）
@@ -274,7 +292,7 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 | Rules | 收集环境信息，维护共享的强制性、固定的、长期的规则 |
 | 参考资料 (Dependencies) | AI 撰写和收集的外部库参考资料 |
 | 需求 (Requirements) | 人和 AI 的交互区，AI 协助完成需求文档 |
-| 工作区 (Workspace) | 人类决策空间，进展叙事 + 决策看板 + 决策日志 + 富媒体资产 |
+| 工作区 (Workspace) | 工作交代区 + 探索草稿区，承载 Dashboard、进展叙事、用户待确认、AI 待办、draft、决策日志与辅助资产 |
 | 任务 (Tasks) | AI 自主规划区域，拆分任务、监控执行、交代结果 |
 | 审查 (Fix Checklists) | 审查结果的持久化记录 |
 | 经验 (Playbooks) | 避免反复犯错，常用工作流固化 |
@@ -290,70 +308,143 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 
 ### 8.3 工作区（Workspace）
 
-工作区是独立于需求文档和任务文档的第三层，专门面向人类决策者。它的核心作用是**帮助人类在最短时间内理解状况、做出最优决策**。
+Workspace 是独立于 requirement 和 task 的第三层，但它的定位已经从"纯决策空间"演进为"决策与 Draft 工作区"。它既服务人类决策者，也服务 AI 恢复上下文和继续推进工作。核心目标是: **让人类快速理解全局，让 AI 不依赖聊天记忆继续工作。**
 
 #### 8.3.1 三层定位
 
 | 文档层 | 回答的问题 | 服务对象 |
 |--------|-----------|---------|
-| `docs/requirements/*.md` | 用户要什么 + 执行状态 | 意图确认 |
-| `docs/workspace/<workflow>/` | 当前到哪了、要决定什么、为什么这样选 | **人类决策者** |
+| `docs/requirements/*.md` | 用户要什么 + 当前执行状态 + 还待确认什么 | 意图确认 |
+| `docs/workspace/**` | 当前到哪了、要决定什么、有哪些想法仍在草拟、AI 下一步做什么 | **人类决策者 + AI 恢复上下文** |
 | `docs/tasks/*.md` | 怎么执行、谁负责、交接什么 | Agent 执行链 |
 
 #### 8.3.2 目录结构
 
 ```text
 docs/workspace/
-├── DASHBOARD.md                        # 全局决策面板（人类入口）
-├── <workflow-name>/                    # 按工作流划分，纯语义命名
-│   ├── README.md                       # 工作流决策主文档
-│   ├── decisions.md                    # 决策日志（待决 + 已决）
-│   ├── *.csv / *.json                  # 辅助决策的数据表格
-│   └── *.png / *.svg                   # 辅助理解的图表
+├── README.md                           # 机制说明
+├── DASHBOARD.md                        # 全局入口：当前状态 / 待确认 / AI 待办
+├── <workflow-name>/                    # 活跃工作流，纯语义命名
+│   ├── README.md                       # 工作流入口与当前状况
+│   ├── draft.md                        # 可选：脑暴、意图假设、对话留痕
+│   ├── decisions.md                    # 可选：待决策 + 已决策
+│   ├── *-explainer.md                  # 可选：复杂背景说明
+│   ├── *.csv / *.json                  # 可选：支撑数据
+│   └── *.png / *.svg                   # 可选：图表或说明资产
+└── archive/
+    ├── retained-completed/             # 已完成但保留溯源
+    └── cleanup-candidate/              # 待确认后可清理
 ```
+
+命名约束:
+
+- 工作流文件夹用纯语义名，不加时间戳
+- 每个工作流必须有 `README.md`
+- 简单工作流可以只有一个 `README.md`
+- `decisions.md` 与 `draft.md` 都是可选的，按复杂度启用
 
 #### 8.3.3 Dashboard
 
-Dashboard 是人类打开工作区的第一个入口，目标是 **10 秒内掌握全局**：
+`DASHBOARD.md` 是人类和 AI 打开 workspace 的第一个入口，目标是 **10 秒内掌握全局并知道下一步**。推荐固定顺序:
 
-- 「需要你决策的」永远置顶，无待决时明确标注
-- 健康度只用三个状态：`●` 就绪 / `⚠` 有阻塞 / `○` 等待输入
+1. `当前状态`：一句话概括全局状态，使用加粗关键词开头
+2. `需要你确认的`：跨工作流汇总待用户回答的问题；没有时明确写"当前无待确认项"
+3. `AI 待办`：列出 AI 可以推进的任务、优先级、状态、阻塞说明
+4. `活跃工作流`：一行一个工作流，附阶段、健康度、简述
+5. `已归档`：折叠列出已完成工作流
+
+Dashboard 规则:
+
+- 健康度只用三个状态: `●` 就绪 / `⚠` 有阻塞 / `○` 等待输入
 - 一行一个工作流，不展开细节
+- 只展示提炼后的确认项与推进状态，不直接贴原始脑暴
+- 工作流归档时，Dashboard 链接必须同步改到 `archive/**`
 
-#### 8.3.4 决策日志
+#### 8.3.4 工作流 README
 
-决策日志是工作区的核心价值——**把散落在对话中的 trade-off 分析持久化**：
+工作流 `README.md` 是单个 workflow 的入口页，通常包含:
 
-**待决策项**结构：
+- 关联需求 / 关联任务
+- 阶段 / 创建时间 / 最后更新时间
+- `当前状况`
+- `待决策项`
+- `草稿入口`（如果存在 `draft.md`）
+- `背景与上下文`
+- `关键里程碑`
+- `本文件夹资产索引`
 
-- 背景描述
-- 选项表格（选项 / 描述 / 代价 / 风险 / 推荐）
-- 支撑数据链接（CSV、图表等）
-- 按项目/维度的分布数据
+它强调"工作交代"而不是执行元数据。即使工作流已完成，也应直接写"当前无待决策项"，而不是为了套模板强造新问题。
 
-**已决策项**结构：
+#### 8.3.5 Draft 草稿层
 
-- 结论 + 理由
-- 在哪个 task 或代码中落地
+`draft.md` 用于记录尚未定稿、但值得保留的探索内容:
 
-#### 8.3.5 五大核心职责
+- 用户真实意图的假设与收敛过程
+- AI 给出的备选方向和粗粒度建议
+- 对话留痕的摘要，而不是原始聊天全文
+- 后续接手人需要的背景线索
 
-1. **进展叙事**——用人话讲当前到哪了，不是 Agent 能读的 metadata
-2. **决策看板**——聚合分散在对话/task/requirement 中的待决策项
-3. **选项 + Trade-off**——每个待决策项列出选项、代价、风险、推荐
-4. **决策日志**——已做出的决策及理由，后续可追溯
-5. **干预判断**——当前是否需要人类介入，为什么
+最重要的边界:
 
-#### 8.3.6 维护职责
+- `draft.md` 服务于继续讨论，不承担 requirement 的确认职责
+- 尚未提炼的内容留在 `draft.md`
+- 需要发给用户确认的问题，提炼到 requirement 的 `待确认`
+- `draft.md` 可以链接 requirement，但不是 requirement 的替代品
 
-- **写入权：编排者（Main Agent）独占**
-- 子智能体通过 handoff 中的 `decision_candidates` 字段供料
-- 编排者收到后判断：需要人类决策 → 写入工作区；只是执行细节 → 留在 task doc
-- 工作区不替代需求文档或任务文档，而是补充此前缺失的决策支持层
+#### 8.3.6 决策日志
 
-#### 8.3.7 与其他层的关系
+`decisions.md` 记录待决策项与已决策项，但要保持简洁、结论化。复杂的背景、概念解释或长篇 trade-off 放到 `*-explainer.md`，由 `decisions.md` 链接引用。
 
-工作区引用 requirement doc 和 task doc，但不重复它们的内容。它的独特价值是 **trade-off 分析、选项比较、决策理由**——这些信息此前没有持久化归宿，要么在对话中产生后丢失，要么被强塞进不适合它的 task doc 或 requirement doc 中。
+待决策项通常包含:
+
+- 提出时间
+- 影响范围
+- 紧急度
+- 1-2 句话背景
+- 选项表格（选项 / 描述 / 代价 / 风险）
+- 支撑数据链接
+
+已决策项通常包含:
+
+- 决策时间
+- 结论
+- 理由
+- 落地位置（task / 代码 / 资产）
+
+#### 8.3.7 核心职责
+
+1. **待确认看板**: 聚合用户需要回答的问题
+2. **AI 待办看板**: 汇总 AI 可以推进的任务和阻塞情况
+3. **进展叙事**: 用人话解释当前到哪了
+4. **选项 + Trade-off**: 为决策提供可比选项
+5. **决策日志**: 沉淀已做出的选择和理由
+6. **Draft 持久化**: 保留探索期草稿和意图挖掘过程
+7. **意图挖掘**: 帮助把模糊需求整理成可确认问题
+8. **干预判断**: 明确当前是否需要人类介入
+
+#### 8.3.8 维护职责
+
+- **写入权：Parent orchestrator 独占**
+- 子智能体通过 handoff 的 `decision_candidates` 等字段供料
+- 需要人类决策的事项写入 `decisions.md`
+- 值得持久化但尚未定稿的探索内容写入 `draft.md`
+- 只是执行细节、验证结果、review 结论，仍留在 task doc
+- 每次状态变化后同步更新 `DASHBOARD.md`
+- 归档时同时移动工作流目录、更新 Dashboard 链接、改写 README 阶段，三者必须一致
+
+#### 8.3.9 与其他层的关系
+
+Workspace 引用 requirement doc 和 task doc，但不重复它们的职责:
+
+- Requirement 负责正式需求真源和确认状态
+- Task 负责执行 brief、验证、review、恢复点
+- Workspace 负责全局入口、工作交代、探索草稿、决策支撑和归档溯源
+
+换句话说，Workspace 的独特价值不再只是 trade-off 分析，还包括:
+
+- 让人类快速看懂"现在发生了什么"
+- 让 AI 快速恢复"下一步该做什么"
+- 给尚未定稿但有价值的探索内容一个稳定归宿
 
 ## 9. 项目文件结构映射
 
@@ -369,12 +460,18 @@ project/
 │   │   ├── migration/playbook.md
 │   │   ├── orchestration/playbook.md
 │   │   └── {domain}/playbook.md
-│   ├── workspace/                     # 决策工作区（面向人类）
-│   │   ├── DASHBOARD.md               # 全局决策面板
-│   │   └── {workflow}/                # 按工作流划分
-│   │       ├── README.md              # 决策主文档
-│   │       ├── decisions.md           # 决策日志
-│   │       └── *.csv|png|svg          # 辅助决策资产
+│   ├── workspace/                     # 决策与 Draft 工作区
+│   │   ├── README.md                  # Workspace 机制说明
+│   │   ├── DASHBOARD.md               # 全局入口：待确认 + AI 待办 + 工作流列表
+│   │   ├── {workflow}/                # 按工作流划分
+│   │       ├── README.md              # 工作流入口与当前状况
+│   │       ├── draft.md               # 可选：探索草稿 / 对话留痕
+│   │       ├── decisions.md           # 可选：待决策与已决策
+│   │       ├── *-explainer.md         # 可选：复杂背景说明
+│   │       └── *.csv|png|svg          # 辅助资产
+│   │   └── archive/                   # 归档工作流
+│   │       ├── retained-completed/
+│   │       └── cleanup-candidate/
 │   ├── requirements/                  # 需求文档（人机交互层）
 │   ├── tasks/                         # L1 任务执行简报
 │   └── fix-checklists/                # 审查修复清单
