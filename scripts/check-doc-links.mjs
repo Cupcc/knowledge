@@ -61,7 +61,8 @@ function collectLocalLinks(content, filePath) {
   const lines = content.split(/\r?\n/)
 
   const markdownLinkPattern = /\[[^\]]+\]\((\/[^)\s]+(?:#[^)]+)?)\)/g
-  const yamlOrConfigLinkPattern = /\blink:\s*['"]?(\/[^'"\s]+(?:#[^'"\s]+)?)['"]?/g
+  const yamlOrConfigLinkPattern =
+    /\blink:\s*['"]?(\/[^'"\s]+(?:#[^'"\s]+)?)['"]?/g
 
   for (const [index, line] of lines.entries()) {
     for (const pattern of [markdownLinkPattern, yamlOrConfigLinkPattern]) {
@@ -100,11 +101,15 @@ async function main() {
   const references = []
   for (const filePath of markdownFiles) {
     const content = await fs.readFile(filePath, 'utf8')
-    references.push(...collectLocalLinks(content, path.relative(rootDir, filePath)))
+    references.push(
+      ...collectLocalLinks(content, path.relative(rootDir, filePath))
+    )
   }
 
   const configContent = await fs.readFile(configPath, 'utf8')
-  references.push(...collectLocalLinks(configContent, path.relative(rootDir, configPath)))
+  references.push(
+    ...collectLocalLinks(configContent, path.relative(rootDir, configPath))
+  )
 
   const brokenReferences = references.filter(({ rawLink }) => {
     const normalized = normalizeRoute(rawLink)

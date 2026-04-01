@@ -35,9 +35,15 @@ export default defineConfig({
         items: [
           { text: '栏目首页', link: '/basics/' },
           { text: '大模型基础认知', link: '/basics/llm-overview' },
-          { text: 'Prompt Engineering 入门', link: '/basics/prompt-engineering' },
+          {
+            text: 'Prompt Engineering 入门',
+            link: '/basics/prompt-engineering'
+          },
           { text: 'RAG 检索增强生成', link: '/basics/rag-intro' },
-          { text: 'AI Coding Agent 编排架构', link: '/basics/ai-agent-workflow' }
+          {
+            text: 'AI Coding Agent 编排架构',
+            link: '/basics/ai-agent-workflow'
+          }
         ]
       },
       {

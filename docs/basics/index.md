@@ -10,12 +10,12 @@ outline: false
 
 ## 收录主题
 
-| 主题 | 当前状态 | 适合读者 | 入口 |
-|---|---|---|---|
-| 大模型基础认知 | 已完成基础版 | 初学者、产品、开发 | [开始阅读](/basics/llm-overview) |
-| Prompt Engineering 入门 | 已完成基础版 | 需要提升交互效果的人 | [开始阅读](/basics/prompt-engineering) |
-| RAG 检索增强生成 | 已完成基础版 | 需要接入外部知识的人 | [开始阅读](/basics/rag-intro) |
-| AI Coding Agent 编排架构 | 已完成详细版 | 关注多智能体协作的人 | [开始阅读](/basics/ai-agent-workflow) |
+| 主题                     | 当前状态     | 适合读者             | 入口                                   |
+| ------------------------ | ------------ | -------------------- | -------------------------------------- |
+| 大模型基础认知           | 已完成基础版 | 初学者、产品、开发   | [开始阅读](/basics/llm-overview)       |
+| Prompt Engineering 入门  | 已完成基础版 | 需要提升交互效果的人 | [开始阅读](/basics/prompt-engineering) |
+| RAG 检索增强生成         | 已完成基础版 | 需要接入外部知识的人 | [开始阅读](/basics/rag-intro)          |
+| AI Coding Agent 编排架构 | 已完成详细版 | 关注多智能体协作的人 | [开始阅读](/basics/ai-agent-workflow)  |
 
 ## 推荐路径
 

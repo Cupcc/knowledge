@@ -1,5 +1,6 @@
 {
   "devDependencies": {
+    "prettier": "^3.6.2",
     "vitepress": "2.0.0-alpha.17"
   },
   "packageManager": "pnpm@10.29.2+sha512.bef43fa759d91fd2da4b319a5a0d13ef7a45bb985a3d7342058470f9d2051a3ba8674e629672654686ef9443ad13a82da2beb9eeb3e0221c87b8154fff9d74b8",
@@ -7,7 +8,9 @@
     "dev": "vitepress dev docs --port 3000 --host 0.0.0.0",
     "build": "vitepress build docs",
     "preview": "vitepress preview docs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "check:links": "node scripts/check-doc-links.mjs",
-    "validate": "pnpm check:links && pnpm build"
+    "validate": "pnpm check:links && pnpm format:check && pnpm build"
   }
 }
