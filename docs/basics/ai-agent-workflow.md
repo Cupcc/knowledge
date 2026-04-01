@@ -1,7 +1,7 @@
 ---
-title: AI Coding Agent 编排架构
+
+## title: AI Coding Agent 编排架构
 description: 从角色体系、知识管理到编排工作流，系统梳理 AI Coding Agent 的协作设计。
----
 
 # AI Coding Agent 编排架构设计
 
@@ -16,13 +16,15 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 
 ## 1. 设计哲学
 
-| 原则 | 说明 |
-|---|---|
-| 简洁优雅 | 用最小开销解决问题，节省 token 消耗 |
-| 自主决策 | 尽量自主推进，只在重大决策点（架构变更、数据库表变更）停下确认 |
-| 渐进式披露 | 不一次性加载全部上下文，按需读取最小相关文件 |
-| 依靠工具 | 用工具验证事实，不靠主观判断和记忆 |
-| 基于文件系统 | 所有状态、通信、经验都持久化到文件，不依赖聊天记忆 |
+
+| 原则     | 说明                              |
+| ------ | ------------------------------- |
+| 简洁优雅   | 用最小开销解决问题，节省 token 消耗           |
+| 自主决策   | 尽量自主推进，只在重大决策点（架构变更、数据库表变更）停下确认 |
+| 渐进式披露  | 不一次性加载全部上下文，按需读取最小相关文件          |
+| 依靠工具   | 用工具验证事实，不靠主观判断和记忆               |
+| 基于文件系统 | 所有状态、通信、经验都持久化到文件，不依赖聊天记忆       |
+
 
 ## 2. 角色体系
 
@@ -33,15 +35,17 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 - **分流决策**：判断任务走轻量直接通道还是重型编排流程
 - **子智能体调度**：按 `plan → code → review → fix → commit → retrospect` 顺序派发工作
 - **通信枢纽**：接收子智能体的 handoff 报告，做合并和冲突判断
-- **质量关卡**：只有在验证通过、审查清零、用户确认后才执行 commit
+- **质量关卡**：验证与审查闭环满足门禁后，由编排者执行提交；重大范围与契约变更仍以用户明确确认为准
 - **经验沉淀**：在 retrospect 阶段回顾全流程，写入 playbook
+- **提交归属**：**只有编排者创建提交**；Planner / Coder / Reviewer 不代替落账。默认交付形态是「验证通过后由编排者管理提交」
 
 编排者的关键行为准则：
 
 - 执行系统性任务时阶段性停止，介入人工测试
 - 做重大决策时停止等待用户确认（架构变更、数据库表变更）
 - 不盲目相信文档——出现困惑或冲突时调用工具、执行测试验证
-- 除非文件写入范围不冲突，否则同一时间只运行一个 coder
+- **默认单写者**：一轮通常只派一个 coder 动代码与共享库；并行需可写路径事先互斥、共享产物有唯一 Owner，并对并发子智能体总数设上限，降低合并冲突
+- 纯摸底仓库时，单开**只读/探索**子任务，与写路径隔离
 - 子智能体之间依靠文件系统通信，不依赖聊天记忆传递
 
 ### 2.2 Planner（规划者）
@@ -52,6 +56,7 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 - 撰写参考资料（`docs/dependencies/`）供 coder 查阅，避免每次都重新调查
 - 将项目计划写入 `docs/tasks/*.md`，作为 coder 的执行简报
 - 输出：任务目标、影响文件、实施步骤、风险点、验证命令、并行安全性判断
+- 写入边界：规划阶段以任务文档为落点；不借规划之名改动应用代码或放宽冻结边界，除非编排者显式扩大授权
 
 ### 2.3 Coder（执行者）
 
@@ -75,12 +80,14 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 
 不同角色对模型能力的要求不同，应自动路由或手动选择以节省 token：
 
-| 角色 | 推荐模型等级 | 原因 |
-|---|---|---|
-| 项目规划 | xhigh | 需要深度推理、跨模块分析、风险预判 |
-| 代码执行 | high | 需要准确实现，但范围已被规划约束 |
-| 代码审查 | xhigh | 需要独立判断正确性、发现隐含风险 |
-| 轻量任务 | fast | 简单编辑、格式修复、文档调整 |
+
+| 角色   | 推荐模型等级 | 原因                |
+| ---- | ------ | ----------------- |
+| 项目规划 | xhigh  | 需要深度推理、跨模块分析、风险预判 |
+| 代码执行 | high   | 需要准确实现，但范围已被规划约束  |
+| 代码审查 | xhigh  | 需要独立判断正确性、发现隐含风险  |
+| 轻量任务 | fast   | 简单编辑、格式修复、文档调整    |
+
 
 ## 3. 编排工作流
 
@@ -105,6 +112,12 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 - 不触碰共享合约或冻结边界
 - 无需 task doc 来安全恢复
 
+轻量通道下的**刻意降载**（避免「为小活套大流程」）：
+
+- **默认不**仅为流程完整而新建 requirement / task 文档；只有续接风险、审计需要或范围会跨多轮对话时才落地文档
+- **不要**仅为对称而启动 Planner；需求已清、改动能一口咬定时，由编排者直接改并做窄验证即可
+- 低风险变更（文档措辞、注释、单一配置项、明显无行为风险的格式修复等）：编排者自检 + 针对性 lint/test 通常足够；**不必**次次单独起 Reviewer，除非暴露隐藏风险或用户要求审查
+
 ### 3.2 重型编排流程
 
 ```text
@@ -121,27 +134,71 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 6. retrospect  编排者回顾全流程，沉淀经验到 playbook
 ```
 
-review → fix 是一个修复循环，不是停止点。只有 reviewer 报告所有 blocking 和 important 发现已清零，才能推进到 commit。
+review → fix 是一个修复循环，不是停止点。只有 reviewer 报告 blocking / important 已清零，才进入提交；仅 plan、仅 review 这类收窄交付通常不产生提交。
+
+### 3.2.1 提交流程与约定
+
+具体条款放在仓库的 commit 规则里（如 `.cursor/rules`）；本文只记原则，与 §4.4 一类章节同级精简。
+
+- **归属**：仅编排者创建提交，子智能体不落账。
+- **时机**：验证与审查门禁满足后再终稿入库；用户声明 `no-commit` 则跳过所有提交，**不**缩小本轮交付范围。
+- **信息形态**：终稿用 Conventional Commits（`type(scope): subject`，subject 写意图）；工作分支可少量检查点承载已验证进度，主线不堆检查点，合入前一般 squash 成干净终稿。
+- **常见情形**：`plan-only` / `review-only` 多止于无提交；交付物就是文档时仍可终稿入库。环境禁止自动提交时，交付 **commit-ready handoff**。
 
 ### 3.3 需求与 Workspace 驱动
 
-非轻量任务仍遵循需求先行，`workspace` 作为正式的"工作交代区 + 探索草稿区"，既服务人类决策，也作为 AI 恢复上下文和判断下一步的入口。
+非轻量任务仍遵循需求先行；`workspace` 作为正式的「工作交代区 + 探索草稿区」，既服务人类决策，也作为 AI 恢复上下文和判断下一步的入口。
+
+#### 3.3.1 需求分层与索引（先看目录，再找文件）
+
+需求侧建议采用**分层真源 + 索引看板**，避免所有文档扁平混用：
+
+
+| 层级   | 典型路径 / 约定                                          | 用途                                                   |
+| ---- | -------------------------------------------------- | ---------------------------------------------------- |
+| 项目级  | `docs/requirements/PROJECT_REQUIREMENTS.md`（或等价命名） | 长期项目目标、边界、非一次性口径                                     |
+| 主题级  | `docs/requirements/topics/*.md`                    | 按业务域 / 能力线的长期真源，切片从中派生                               |
+| 任务切片 | `docs/requirements/` 根目录下的 `req-*.md`（或团队约定前缀）     | 当前交付轮次的用户意图、进展、待确认                                   |
+| 索引   | `docs/requirements/REQUIREMENT_CENTER.md`          | 哪些 requirement 仍 **active**、哪些已归档、与 task 的对应关系**一览** |
+| 任务索引 | `docs/tasks/TASK_CENTER.md`（或与需求索引配对）              | 哪些 task 仍 active、归档桶、清理候选**一览**                      |
+
+
+续接会话、判断「还有没有活在跑」时，应**优先**以索引与 lifecycle（active / 归档位置）为准，再打开具体长文。
+
+#### 3.3.2 协作数据流
 
 ```text
-docs/requirements/*.md        正式需求真源（用户需求 + 当前进展 + 待确认）
+docs/requirements/REQUIREMENT_CENTER.md
+docs/tasks/TASK_CENTER.md                生命周期与活跃 scope 真源（先看）
          ↓
-docs/workspace/DASHBOARD.md   全局入口（当前状态 + 需要你确认的 + AI 待办）
+docs/requirements/{PROJECT | topics | req-*}.md   分层需求正文
          ↓
-docs/workspace/<workflow>/    工作流工作区（README + draft + decisions）
+docs/workspace/DASHBOARD.md              全局入口（当前状态 + 待你确认 + AI 待办）
          ↓
-docs/tasks/*.md               任务执行简报（AI 自主规划区）
+docs/workspace/<workflow>/               工作流区（README + draft + decisions）
+         ↓
+docs/tasks/task-*.md                     任务执行简报（规划输出、验证、review）
          ↓
 代码实施 + 验证
          ↓
-同步进展回 requirement + Dashboard/README/draft/decisions
+同步进展 → requirement 当前进展 / 待确认；Workspace Dashboard、README、draft、decisions；task 状态
 ```
 
-Requirement 文档记录: `用户需求`、`当前进展`、`待确认`，是正式口径和确认状态的真源。
+Requirement 文档建议结构（与 handoff 对齐）：
+
+- `**用户需求**`：本次要做什么（简洁、可验收）
+- `**当前进展**`：面向读者的状态块，至少包含 `**阶段进度` / `当前状态` / `阻塞项` / `下一步**`
+- `**待确认**`：尚未定稿、需用户拍板的事项；没有则写 `None`
+- **Metadata（推荐）**：`Status`（如 `needs-confirmation` / `confirmed`）、`Lifecycle disposition`（`active` 与归档桶）等，便于索引与自动化
+
+Workspace、task 分工不变：`draft.md` 不是确认真源；执行细节与 review 结论留在 task doc。
+
+#### 3.3.3 闭环与归档
+
+当某一 scope **客观上已结束**且无真实后续跟进的默认动作时：
+
+- **同一轮对话内**将 requirement / task / workspace 迁至归档桶或更新 lifecycle，并刷新两侧索引；避免根目录长期悬挂「假活跃」条目，误导后续「继续」从错误文档续接
+- 已归档文档仅作**溯源 / provenance**，不自动当作下一轮的活跃 handoff，除非用户明确重开 scope
 
 Workspace 记录:
 
@@ -174,11 +231,13 @@ L2  docs/playbooks/*/playbook.md     领域经验（可进化的战术知识）
 L1  docs/tasks/*.md                  任务状态（单任务生命周期）
 ```
 
-此外还有两个正交层，不属于知识成熟度阶梯，但在编排中不可或缺：
+此外还有若干**正交层**，不属于知识成熟度阶梯，但在编排中不可或缺：
 
 ```text
 docs/workspace/**                    决策与 Draft 工作区（人类决策支持 + AI 恢复上下文）
-docs/requirements/*.md               用户交互层（意图 + 状态）
+docs/requirements/**                 用户交互层（分层：PROJECT / topics / req-* 切片）
+docs/requirements/REQUIREMENT_CENTER.md   需求索引看板（活跃 / 归档 / 与 task 对应）
+docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档桶 / 清理候选）
 ```
 
 ### 4.2 知识生命周期
@@ -200,12 +259,14 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 
 ### 4.3 各层级的写入标准
 
-| 层级 | 写入条件 | 不应写入 |
-|---|---|---|
-| L4 规则 | 已确认、跨任务稳定、不含 secrets | 临时阻塞、一次性修复、分支状态 |
-| L3 技能 | 流程稳定、可重复执行 | 还在迭代的实验性方法 |
-| L2 经验 | 非显而易见的模式、教训、边界案例 | 众所周知的库行为（放 dependencies） |
-| L1 任务 | 当前任务的运行时状态 | 跨任务复用的知识 |
+
+| 层级    | 写入条件                 | 不应写入                     |
+| ----- | -------------------- | ------------------------ |
+| L4 规则 | 已确认、跨任务稳定、不含 secrets | 临时阻塞、一次性修复、分支状态          |
+| L3 技能 | 流程稳定、可重复执行           | 还在迭代的实验性方法               |
+| L2 经验 | 非显而易见的模式、教训、边界案例     | 众所周知的库行为（放 dependencies） |
+| L1 任务 | 当前任务的运行时状态           | 跨任务复用的知识                 |
+
 
 ### 4.4 Rules 的使用原则
 
@@ -218,12 +279,14 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 
 ### 5.1 设计目标
 
-| 目标 | 实现方式 |
-|---|---|
-| 子智能体间通信 | 通过 `docs/tasks/*.md` 和 handoff 报告传递 |
-| 避免对话中重要信息丢失 | 关键状态写入文件，不依赖聊天记忆 |
+
+| 目标             | 实现方式                                         |
+| -------------- | -------------------------------------------- |
+| 子智能体间通信        | 通过 `docs/tasks/*.md` 和 handoff 报告传递          |
+| 避免对话中重要信息丢失    | 关键状态写入文件，不依赖聊天记忆                             |
 | 避免常用信息反复调用工具获取 | 本地缓存到 `docs/dependencies/`、`docs/playbooks/` |
-| 避免 AI 反复犯同一个错误 | 经验沉淀到 playbook，成熟后提升为 rule |
+| 避免 AI 反复犯同一个错误 | 经验沉淀到 playbook，成熟后提升为 rule                   |
+
 
 ### 5.2 Handoff 机制
 
@@ -239,7 +302,7 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 
 编排者收到 handoff 后：
 
-- 执行进展 → 同步到 requirement 的 `当前进展`
+- 执行进展 → 同步到 requirement 的 `**当前进展**`（写入或折叠进 `阶段进度` / `当前状态` / `阻塞项` / `下一步`）
 - 需要用户决策的事项 → 写入 `docs/workspace/<workflow>/decisions.md`
 - 值得持久化的探索草稿 → 写入 `docs/workspace/<workflow>/draft.md`
 - 工作流状态变化 → 更新 `docs/workspace/DASHBOARD.md`
@@ -247,13 +310,16 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 
 ### 5.3 跨会话续接
 
-当用户说"继续"时：
+当用户说「继续」「接着做」「在新会话里续」时，**优先恢复生命周期真源**，再下钻细节：
 
-1. 先读取 `docs/workspace/DASHBOARD.md`
-2. 定位对应 `docs/workspace/<workflow>/README.md`，必要时补读 `draft.md` / `decisions.md`
-3. 再读取关联的 requirement doc、task doc、fix-checklist、报告文件
-4. 重建：当前范围、已完成步骤、已通过验证、剩余阻塞、下一个安全动作
-5. 不从头重新规划，除非文档过时或用户明确要求
+1. **先看索引与 disposition**：`docs/tasks/TASK_CENTER.md`、`docs/requirements/REQUIREMENT_CENTER.md`（及其中对 `archive/`** 路径的说明）；确认是否仍存在 **active** 的 requirement / task，抑或仅有已归档条目。**若已仅有归档、且用户未要求重开旧 scope，则把归档当 provenance，不要默认复活上一轮范围。**
+2. **再看 Workspace 全局入口**：`docs/workspace/DASHBOARD.md`（活跃工作流、待确认、AI 待办）；若相关工作流已归档，按 Dashboard 指向的 `docs/workspace/archive/`** 阅读即可，勿与活跃 scope 混读
+3. **下钻工作流目录**：`docs/workspace/<workflow>/README.md`，必要时补读 `draft.md`、`decisions.md`
+4. **读取活跃 handoff 载体**：关联的 requirement（PROJECT / topics / `req-`* 中的具体文件）、task doc、`docs/fix-checklists/`、任务中引用的报告与产物路径
+5. **重建心智模型**：当前范围、最后一步、已通过验证、剩余阻塞、下一步最小安全动作
+6. **不从头重规划**，除非：不存在可读 task、task 与仓库现状矛盾、或用户明确要求重议方案
+
+结束前可在对话内做一次**一致性扫视**：requirement / task / workspace 三者的 lifecycle 是否互相指向；Dashboard 是否仍把已收口工作流标成活跃。
 
 ## 6. API 与依赖工作流
 
@@ -284,39 +350,45 @@ docs/requirements/*.md               用户交互层（意图 + 状态）
 
 ## 7. 工具优先原则
 
-| 场景 | 正确做法 | 错误做法 |
-|---|---|---|
-| 获取执行时间 | 调用工具 / 编写脚本计时 | 估计 |
-| 修复代码格式 | 先跑 formatter 和 linter | AI 手动修格式 |
-| 验证正确性 | 运行 test 脚本 | 只靠主观判断 |
-| 确认 API 版本 | 查 package.json + Context7 | 从记忆回忆 |
-| 验证文档真实性 | 执行测试、调用工具 | 盲目相信文档 |
+
+| 场景        | 正确做法                      | 错误做法     |
+| --------- | ------------------------- | -------- |
+| 获取执行时间    | 调用工具 / 编写脚本计时             | 估计       |
+| 修复代码格式    | 先跑 formatter 和 linter     | AI 手动修格式 |
+| 验证正确性     | 运行 test 脚本                | 只靠主观判断   |
+| 确认 API 版本 | 查 package.json + Context7 | 从记忆回忆    |
+| 验证文档真实性   | 执行测试、调用工具                 | 盲目相信文档   |
+
 
 ## 8. 功能模块总览
 
 ### 8.1 核心模块
 
-| 模块 | 职责 |
-|---|---|
-| Orchestration | 编排智能体协作工作流程，分流决策 |
-| Subagents | 定义各种 agent 角色和技能 |
-| 通信 (Handoff) | 基于文件系统的交接通信，确保信息不丢失 |
-| Rules | 收集环境信息，维护共享的强制性、固定的、长期的规则 |
-| 参考资料 (Dependencies) | AI 撰写和收集的外部库参考资料 |
-| 需求 (Requirements) | 人和 AI 的交互区，AI 协助完成需求文档 |
-| 工作区 (Workspace) | 工作交代区 + 探索草稿区，承载 Dashboard、进展叙事、用户待确认、AI 待办、draft、决策日志与辅助资产 |
-| 任务 (Tasks) | AI 自主规划区域，拆分任务、监控执行、交代结果 |
-| 审查 (Fix Checklists) | 审查结果的持久化记录 |
-| 经验 (Playbooks) | 避免反复犯错，常用工作流固化 |
+
+| 模块                  | 职责                                                          |
+| ------------------- | ----------------------------------------------------------- |
+| Orchestration       | 编排智能体协作工作流程，分流决策                                            |
+| Subagents           | 定义各种 agent 角色和技能                                            |
+| 通信 (Handoff)        | 基于文件系统的交接通信，确保信息不丢失                                         |
+| Rules               | 收集环境信息，维护共享的强制性、固定的、长期的规则                                   |
+| 参考资料 (Dependencies) | AI 撰写和收集的外部库参考资料                                            |
+| 需求 (Requirements)   | 人机交互层：分层真源（项目 / 主题 / 切片）+ `REQUIREMENT_CENTER` 索引           |
+| 工作区 (Workspace)     | 工作交代区 + 探索草稿区，承载 Dashboard、进展叙事、用户待确认、AI 待办、draft、决策日志与辅助资产 |
+| 任务 (Tasks)          | AI 自主规划区域，拆分任务、监控执行、交代结果                                    |
+| 审查 (Fix Checklists) | 审查结果的持久化记录                                                  |
+| 经验 (Playbooks)      | 避免反复犯错，常用工作流固化                                              |
+
 
 ### 8.2 辅助模块
 
-| 模块 | 职责 |
-|---|---|
-| Scripts | AI 利用的各种脚本工具（迁移、验证、报告生成） |
-| Skills | AI 利用的各种结构化技能（编排、迁移、审查流程） |
-| Test | 审查 AI 工作质量的各种测试 |
-| Hooks | 监控 AI 进度发送飞书消息、触发代码格式化等 |
+
+| 模块      | 职责                        |
+| ------- | ------------------------- |
+| Scripts | AI 利用的各种脚本工具（迁移、验证、报告生成）  |
+| Skills  | AI 利用的各种结构化技能（编排、迁移、审查流程） |
+| Test    | 审查 AI 工作质量的各种测试           |
+| Hooks   | 监控 AI 进度发送飞书消息、触发代码格式化等   |
+
 
 ### 8.3 工作区（Workspace）
 
@@ -324,11 +396,13 @@ Workspace 是独立于 requirement 和 task 的第三层，定位为"决策与 D
 
 #### 8.3.1 三层定位
 
-| 文档层 | 回答的问题 | 服务对象 |
-|--------|-----------|---------|
-| `docs/requirements/*.md` | 用户要什么 + 当前执行状态 + 还待确认什么 | 意图确认 |
-| `docs/workspace/**` | 当前到哪了、要决定什么、有哪些想法仍在草拟、AI 下一步做什么 | **人类决策者 + AI 恢复上下文** |
-| `docs/tasks/*.md` | 怎么执行、谁负责、交接什么 | Agent 执行链 |
+
+| 文档层                         | 回答的问题                           | 服务对象                 |
+| --------------------------- | ------------------------------- | -------------------- |
+| `docs/requirements/`** + 索引 | 用户要什么（哪一层真源）+ 当前执行状态 + 还待确认什么   | 意图确认、续接时先看索引         |
+| `docs/workspace/**`         | 当前到哪了、要决定什么、有哪些想法仍在草拟、AI 下一步做什么 | **人类决策者 + AI 恢复上下文** |
+| `docs/tasks/`** + 索引        | 怎么执行、验证与 review 结论、续接命令与产物路径    | Agent 执行链            |
+
 
 #### 8.3.2 目录结构
 
@@ -357,7 +431,7 @@ docs/workspace/
 
 #### 8.3.3 Dashboard
 
-`DASHBOARD.md` 是人类和 AI 打开 workspace 的第一个入口，目标是 **10 秒内掌握全局并知道下一步**。推荐固定顺序:
+`DASHBOARD.md` 是人类和 AI 打开 workspace 的**叙事向**总入口，目标是 **10 秒内掌握全局并知道下一步**；与 `REQUIREMENT_CENTER` / `TASK_CENTER` 互为补充（前者偏「有哪些文档仍活跃」，本文件偏「当前故事线与待办」）。推荐固定顺序:
 
 1. `当前状态`：一句话概括全局状态，使用加粗关键词开头
 2. `需要你确认的`：跨工作流汇总待用户回答的问题；没有时明确写"当前无待确认项"
@@ -370,7 +444,7 @@ Dashboard 规则:
 - 健康度只用三个状态: `●` 就绪 / `⚠` 有阻塞 / `○` 等待输入
 - 一行一个工作流，不展开细节
 - 只展示提炼后的确认项与推进状态，不直接贴原始脑暴
-- 工作流归档时，Dashboard 链接必须同步改到 `archive/**`
+- 工作流归档时，Dashboard 链接必须同步改到 `archive/`**
 
 #### 8.3.4 工作流 README
 
@@ -475,17 +549,29 @@ project/
 │   ├── workspace/                     # 决策与 Draft 工作区
 │   │   ├── README.md                  # Workspace 机制说明
 │   │   ├── DASHBOARD.md               # 全局入口：待确认 + AI 待办 + 工作流列表
-│   │   ├── {workflow}/                # 按工作流划分
-│   │       ├── README.md              # 工作流入口与当前状况
-│   │       ├── draft.md               # 可选：探索草稿 / 对话留痕
-│   │       ├── decisions.md           # 可选：待决策与已决策
-│   │       ├── *-explainer.md         # 可选：复杂背景说明
-│   │       └── *.csv|png|svg          # 辅助资产
-│   │   └── archive/                   # 归档工作流
+│   │   ├── {workflow}/               # 按工作流划分
+│   │   │   ├── README.md
+│   │   │   ├── draft.md
+│   │   │   ├── decisions.md
+│   │   │   └── ...
+│   │   └── archive/
 │   │       ├── retained-completed/
 │   │       └── cleanup-candidate/
-│   ├── requirements/                  # 需求文档（人机交互层）
-│   ├── tasks/                         # L1 任务执行简报
+│   ├── requirements/                  # 人机交互层（建议分层）
+│   │   ├── REQUIREMENT_CENTER.md      # 需求索引看板
+│   │   ├── PROJECT_REQUIREMENTS.md     # 项目级长期真源（可选命名）
+│   │   ├── topics/                    # 主题级长期真源
+│   │   ├── req-*.md                   # 活跃切片（闭环后迁入 archive）
+│   │   └── archive/
+│   │       ├── retained-completed/
+│   │       └── cleanup-candidate/
+│   ├── tasks/
+│   │   ├── TASK_CENTER.md             # 任务索引看板
+│   │   ├── task-*.md                  # 活跃执行简报
+│   │   ├── README.md / _template.md   # 目录说明与模板（可选）
+│   │   └── archive/
+│   │       ├── retained-completed/
+│   │       └── cleanup-candidate/
 │   └── fix-checklists/                # 审查修复清单
 ├── scripts/                           # 辅助脚本工具
 └── test/                              # 测试套件
@@ -500,3 +586,4 @@ project/
 3. **工作流持续改进**：编排规则本身也是可迭代的，orchestration playbook 记录编排层面的经验
 4. **参考资料自维护**：dependency docs 有明确的刷新触发条件和工作流
 5. **避免重复犯错**：playbook 让同类错误不会在不同聊天会话中反复出现
+
