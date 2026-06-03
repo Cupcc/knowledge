@@ -5,7 +5,7 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 
 # AI Coding Agent 编排架构设计
 
-基于 Cursor IDE + Claude/GPT 的多智能体编排架构实践笔记。本文记录了在真实 NestJS WMS 项目中逐步演进出的 Agent 协作体系: 从角色划分、知识管理到工作流编排的完整设计思路。
+基于 Cursor IDE + Claude/GPT 的多智能体编排架构实践笔记。本文参考 `saifute-wms-server-nestjs-fix` 这个真实 NestJS WMS 迁移仓库，记录一套在复杂业务代码库里逐步演进出的 Agent 协作体系：从角色划分、知识管理到工作流编排的完整设计思路。
 
 > 当前状态：已完成详细版  
 > 阅读建议：建议先读完 [大模型基础认知](/basics/llm-overview) 和 [Prompt Engineering 入门](/basics/prompt-engineering)，再阅读本文。
@@ -13,6 +13,14 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 ## 先看结论
 
 如果把大模型看成能力底座，那么 Agent 更像是在这个底座上叠加“任务拆解、工具调用、状态管理、验证与协作机制”的系统层。本文的重点，不是单个 Prompt，而是如何把多个角色、文档、验证步骤和经验沉淀组织成一个可持续迭代的工作流。
+
+参考项目的业务复杂度很高：同一个仓库同时承载 NestJS 后端、Vue 管理端、Prisma schema、历史数据迁移脚本、库存价格层重建、月度报表、RBAC、系统配置和验收文档。这类项目最容易暴露 Agent 协作的真实问题：一次改动常常跨前后端、数据库、报表导出和测试；一次恢复任务如果读错旧文档，就可能继续执行已经归档的范围；一次数据库脚本如果没有明确护栏，就可能把“开发便利命令”变成破坏性操作。
+
+因此，这套架构的核心不是“让 AI 多开几个角色”，而是三件事：
+
+1. **事实优先**：每次先读当前代码、索引和运行配置，而不是从聊天记忆或旧文档继续。
+2. **分层留痕**：长期业务真源、活跃任务状态、临时探索草稿、稳定规则分别存放。
+3. **验证闭环**：代码修改必须落到类型检查、测试、构建、API 检查、数据库校验或浏览器验收等可复现证据上。
 
 ## 1. 设计哲学
 
@@ -31,15 +39,15 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 编排者是整个工作流的中枢。它不直接写大量代码，而是负责：
 
 - **分流决策**：判断任务走轻量直接通道还是重型编排流程
-- **子智能体调度**：按 `plan → code → review → fix → commit → retrospect` 顺序派发工作
+- **子智能体调度**：按当前事实选择 `plan`、`code`、`review`、`acceptance` 或直接续接已有 task，而不是机械套固定流程
 - **通信枢纽**：接收子智能体的 handoff 报告，做合并和冲突判断
 - **质量关卡**：验证与审查闭环满足门禁后，由编排者执行提交；重大范围与契约变更仍以用户明确确认为准
 - **经验沉淀**：在 retrospect 阶段回顾全流程，写入 playbook
-- **提交归属**：**只有编排者创建提交**；Planner / Coder / Reviewer 不代替落账。默认交付形态是「验证通过后由编排者管理提交」
+- **提交归属**：**只有编排者创建提交**；Planner / Coder / Reviewer / Acceptance QA 不代替落账。默认交付形态是「验证通过后由编排者管理提交」
 
 编排者的关键行为准则：
 
-- 执行系统性任务时阶段性停止，介入人工测试
+- 执行系统性任务时根据风险选择轻量验证、完整验收或人工确认
 - 做重大决策时停止等待用户确认（架构变更、数据库表变更）
 - 不盲目相信文档——出现困惑或冲突时调用工具、执行测试验证
 - **默认单写者**：一轮通常只派一个 coder 动代码与共享库；并行需可写路径事先互斥、共享产物有唯一 Owner，并对并发子智能体总数设上限，降低合并冲突
@@ -74,16 +82,29 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 - 更新审查文档，写入 `docs/fix-checklists/`
 - 输出：findings（按严重度排序）、修复指令、验证判断
 
-### 2.5 模型选择策略
+### 2.5 Acceptance QA（验收者）
+
+Acceptance QA 不是代码审查者的别名，而是需求级验收者。它关注的是“用户要的能力是否真的交付”，而不是单个实现文件是否写得合理。
+
+- 依据 requirement 的验收标准、task doc 的 acceptance mode 和用户可见流程设计验收路径
+- 在 `Acceptance mode = full` 时维护或更新 `docs/acceptance-tests/**`，形成可复用验收规格、案例和运行记录
+- 需要时执行浏览器验收、API 验收、数据库核验或业务证据采集
+- 将验收结论回写到 task doc，并在能力完成时同步更新对应 `docs/requirements/domain/*.md` 状态
+- 遇到环境缺口、证据缺口、需求误解或实现缺口时，明确分类并交还给 Main Agent 分派修复
+
+参考 WMS 仓库中，Acceptance QA 常用于月度报表、销售项目、库存价格层、主数据等跨页面 / 跨模块能力。代码审查通过只说明实现没有明显问题；QA 通过才说明这一轮业务能力具备可签收证据。
+
+### 2.6 模型选择策略
 
 不同角色对模型能力的要求不同，应自动路由或手动选择以节省 token：
 
-| 角色     | 推荐模型等级 | 原因                               |
-| -------- | ------------ | ---------------------------------- |
-| 项目规划 | xhigh        | 需要深度推理、跨模块分析、风险预判 |
-| 代码执行 | high         | 需要准确实现，但范围已被规划约束   |
-| 代码审查 | xhigh        | 需要独立判断正确性、发现隐含风险   |
-| 轻量任务 | fast         | 简单编辑、格式修复、文档调整       |
+| 角色     | 推荐模型等级 | 原因                                         |
+| -------- | ------------ | -------------------------------------------- |
+| 项目规划 | xhigh        | 需要深度推理、跨模块分析、风险预判           |
+| 代码执行 | high         | 需要准确实现，但范围已被规划约束             |
+| 代码审查 | xhigh        | 需要独立判断正确性、发现隐含风险             |
+| 验收 QA  | xhigh        | 需要从用户流程、数据证据和需求口径判断完成度 |
+| 轻量任务 | fast         | 简单编辑、格式修复、文档调整                 |
 
 ## 3. 编排工作流
 
@@ -97,7 +118,7 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
    │   → 直接编辑 → 聚焦验证 → 完成
    │
    └── 重型编排流程：多文件、跨模块、有设计决策
-       → plan → code → review → fix → commit → retrospect
+       → 恢复事实 → 规划或续接 → 实施 → 审查 / 验收 → 收口
 ```
 
 轻量通道的判断信号：
@@ -117,20 +138,24 @@ description: 从角色体系、知识管理到编排工作流，系统梳理 AI 
 ### 3.2 重型编排流程
 
 ```text
-1. plan        Planner 调研、拆解任务、撰写执行简报
-                 ↓
-2. code        Coder 按简报实施、产出代码变更
-                 ↓
-3. review      Reviewer 审查正确性、回归、测试覆盖
-                 ↓
-4. fix         如有 blocking/important 发现 → 回到 Coder 修复 → 重新 review
-                 ↓
-5. commit      编排者验证全部通过后执行提交
-                 ↓
-6. retrospect  编排者回顾全流程，沉淀经验到 playbook
+1. restore     读取 REQUIREMENT_CENTER / TASK_CENTER / workspace / 当前代码
+                  ↓
+2. decide      判断是直接续接、补规划、进入编码、先审查，还是先验收
+                  ↓
+3. execute     Planner / Coder / Reviewer / Acceptance QA 按需参与
+                  ↓
+4. fix loop    如有 blocking / important 发现 → 修复 → 复核
+                  ↓
+5. closeout    更新 task / requirement / workspace，必要时归档
+                  ↓
+6. retrospect  非轻量任务完成后沉淀经验到 playbook 或 rules
 ```
 
-review → fix 是一个修复循环，不是停止点。只有 reviewer 报告 blocking / important 已清零，才进入提交；仅 plan、仅 review 这类收窄交付通常不产生提交。
+review → fix 是一个修复循环，不是停止点。只有 reviewer 报告 blocking / important 已清零，才进入验收或收口；仅 plan、仅 review 这类收窄交付通常不产生提交。
+
+在参考仓库里，重型流程后来从“固定的 `plan → code → review → acceptance`”收敛成“事实驱动的自适应流程”。例如用户说“继续”时，Main Agent 先看 `docs/tasks/TASK_CENTER.md` 里是否已有 active task，再决定从哪一步恢复；如果 active task 已经有清晰 coder handoff，就不重新创建 plan。如果用户只要求排查一个低风险问题，则可以直接读源码、跑聚焦命令、给出结论，不为了形式创建任务文档。
+
+Acceptance QA 只在验收证据有价值时介入：用户明确要求完整测试报告、task 选择 `Acceptance mode = full`、涉及真实用户流程、跨模块业务闭环或高成本业务影响时，应进入 QA；文案微调、单文件低风险修复或纯内部重构，通常由 Reviewer + 聚焦验证即可收口。
 
 ### 3.2.1 提交流程与约定
 
@@ -147,15 +172,16 @@ review → fix 是一个修复循环，不是停止点。只有 reviewer 报告 
 
 #### 3.3.1 需求分层与索引（先看目录，再找文件）
 
-需求侧建议采用**分层真源 + 索引看板**，避免所有文档扁平混用：
+需求侧建议采用**分层真源 + 索引看板**，避免所有文档扁平混用。参考仓库最终采用的是“项目真源 + 领域真源 + 任务索引”，`req-*` 只作为可选切片，而不是默认中间层：
 
-| 层级     | 典型路径 / 约定                                              | 用途                                                                   |
-| -------- | ------------------------------------------------------------ | ---------------------------------------------------------------------- |
-| 项目级   | `docs/requirements/PROJECT_REQUIREMENTS.md`（或等价命名）    | 长期项目目标、边界、非一次性口径                                       |
-| 主题级   | `docs/requirements/topics/*.md`                              | 按业务域 / 能力线的长期真源，切片从中派生                              |
-| 任务切片 | `docs/requirements/` 根目录下的 `req-*.md`（或团队约定前缀） | 当前交付轮次的用户意图、进展、待确认                                   |
-| 索引     | `docs/requirements/REQUIREMENT_CENTER.md`                    | 哪些 requirement 仍 **active**、哪些已归档、与 task 的对应关系**一览** |
-| 任务索引 | `docs/tasks/TASK_CENTER.md`（或与需求索引配对）              | 哪些 task 仍 active、归档桶、清理候选**一览**                          |
+| 层级       | 典型路径 / 约定                                     | 用途                                                        |
+| ---------- | --------------------------------------------------- | ----------------------------------------------------------- |
+| 项目级     | `docs/requirements/PROJECT_REQUIREMENTS.md`         | 长期项目目标、全局业务边界、跨领域共同规则                  |
+| 领域级     | `docs/requirements/domain/*.md`                     | 按业务域 / 能力线维护长期真源，如库存、入库、销售、月报等   |
+| 任务切片   | `docs/requirements/req-*.md`（可选）                | 只在单次交付需要独立确认、跨领域临时收敛时使用              |
+| 需求索引   | `docs/requirements/REQUIREMENT_CENTER.md`           | 需求条目、状态、关联任务和统计的一览                        |
+| 任务索引   | `docs/tasks/TASK_CENTER.md`                         | 哪些 task 仍 active、哪些已归档、哪些只是 cleanup-candidate |
+| 工作区入口 | `docs/workspace/DASHBOARD.md`（需要决策支持时使用） | 当前故事线、待确认项、AI 下一步，不替代 requirement / task  |
 
 续接会话、判断「还有没有活在跑」时，应**优先**以索引与 lifecycle（active / 归档位置）为准，再打开具体长文。
 
@@ -165,9 +191,9 @@ review → fix 是一个修复循环，不是停止点。只有 reviewer 报告 
 docs/requirements/REQUIREMENT_CENTER.md
 docs/tasks/TASK_CENTER.md                生命周期与活跃 scope 真源（先看）
          ↓
-docs/requirements/{PROJECT | topics | req-*}.md   分层需求正文
+docs/requirements/{PROJECT | domain | req-*}.md   分层需求正文
          ↓
-docs/workspace/DASHBOARD.md              全局入口（当前状态 + 待你确认 + AI 待办）
+docs/workspace/DASHBOARD.md              全局入口（当前状态 + 待确认 + AI 待办）
          ↓
 docs/workspace/<workflow>/               工作流区（README + draft + decisions）
          ↓
@@ -186,6 +212,8 @@ Requirement 文档建议结构（与 handoff 对齐）：
 - **Metadata（推荐）**：`Status`（如 `needs-confirmation` / `confirmed`）、`Lifecycle disposition`（`active` 与归档桶）等，便于索引与自动化
 
 Workspace、task 分工不变：`draft.md` 不是确认真源；执行细节与 review 结论留在 task doc。
+
+一个重要实践是：**不要让任务文档替代需求文档，也不要让 workspace 替代任务文档**。参考仓库的 `TASK_CENTER.md` 会记录“当前活跃任务”和“已归档任务”，但长期业务口径仍回写到 `docs/requirements/domain/*.md`。这样下一次继续月度报表、库存价格层或系统管理能力时，Agent 不需要从几十个历史 task 里猜测当前真源。
 
 #### 3.3.3 闭环与归档
 
@@ -229,7 +257,7 @@ L1  docs/tasks/*.md                  任务状态（单任务生命周期）
 
 ```text
 docs/workspace/**                    决策与 Draft 工作区（人类决策支持 + AI 恢复上下文）
-docs/requirements/**                 用户交互层（分层：PROJECT / topics / req-* 切片）
+docs/requirements/**                 用户交互层（分层：PROJECT / domain / 可选 req-* 切片）
 docs/requirements/REQUIREMENT_CENTER.md   需求索引看板（活跃 / 归档 / 与 task 对应）
 docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档桶 / 清理候选）
 ```
@@ -266,6 +294,7 @@ docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档�
 - 将每次都需要查看的信息写入 rules（如开发环境版本）
 - rules 信息尽量简洁，避免膨胀
 - 不写入临时状态、一次性修复、分支特定的 workaround
+- 对危险操作写明确护栏，而不是只写提醒。例如参考仓库曾把 Prisma 推库 / 数据库重建规则放进 `.cursor/rules/prisma-push-collation.mdc`，要求使用受控入口、校验排序规则，并避免把一次性恢复步骤伪装成普通开发命令。
 
 ## 5. 记忆与通信系统
 
@@ -302,10 +331,10 @@ docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档�
 
 当用户说「继续」「接着做」「在新会话里续」时，**优先恢复生命周期真源**，再下钻细节：
 
-1. **先看索引与 disposition**：`docs/tasks/TASK_CENTER.md`、`docs/requirements/REQUIREMENT_CENTER.md`（及其中对 `archive/`** 路径的说明）；确认是否仍存在 **active** 的 requirement / task，抑或仅有已归档条目。**若已仅有归档、且用户未要求重开旧 scope，则把归档当 provenance，不要默认复活上一轮范围。\*\*
-2. **再看 Workspace 全局入口**：`docs/workspace/DASHBOARD.md`（活跃工作流、待确认、AI 待办）；若相关工作流已归档，按 Dashboard 指向的 `docs/workspace/archive/`\*\* 阅读即可，勿与活跃 scope 混读
+1. **先看索引与 disposition**：`docs/tasks/TASK_CENTER.md`、`docs/requirements/REQUIREMENT_CENTER.md`（及其中对 `archive/` 路径的说明）；确认是否仍存在 **active** 的 requirement / task，抑或仅有已归档条目。若已仅有归档、且用户未要求重开旧 scope，则把归档当 provenance，不要默认复活上一轮范围。
+2. **再看 Workspace 全局入口**：`docs/workspace/DASHBOARD.md`（活跃工作流、待确认、AI 待办）；若相关工作流已归档，按 Dashboard 指向的 `docs/workspace/archive/` 阅读即可，勿与活跃 scope 混读
 3. **下钻工作流目录**：`docs/workspace/<workflow>/README.md`，必要时补读 `draft.md`、`decisions.md`
-4. **读取活跃 handoff 载体**：关联的 requirement（PROJECT / topics / `req-`\* 中的具体文件）、task doc、`docs/fix-checklists/`、任务中引用的报告与产物路径
+4. **读取活跃 handoff 载体**：关联的 requirement（PROJECT / domain / 可选 `req-*` 中的具体文件）、task doc、`docs/fix-checklists/`、任务中引用的报告与产物路径
 5. **重建心智模型**：当前范围、最后一步、已通过验证、剩余阻塞、下一步最小安全动作
 6. **不从头重规划**，除非：不存在可读 task、task 与仓库现状矛盾、或用户明确要求重议方案
 
@@ -316,7 +345,7 @@ docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档�
 ### 6.1 四级查找顺序
 
 ```text
-1. 本地版本确认    package.json + pnpm-lock.yaml
+1. 本地版本确认    package.json + lockfile（bun.lock / pnpm-lock.yaml 等）
        ↓
 2. 本地参考文档    docs/dependencies/<slug>.md（需 Refresh status 已验证）
        ↓
@@ -338,6 +367,8 @@ docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档�
 
 核心原则：**不从记忆写 API，确认 API 存在且未废弃再使用。**
 
+参考仓库里后端根目录以 Bun 为脚本入口，前端 `web/` 保留 pnpm 约定；因此依赖检查不能只看一个锁文件。类似地，Prisma、NestJS、Swagger、Winston 这类高频依赖会沉淀到 `docs/dependencies/*.md`，但只有 `Refresh status` 显示已验证时，才把本地依赖文档当作 API 依据。
+
 ## 7. 工具优先原则
 
 | 场景           | 正确做法                   | 错误做法      |
@@ -347,6 +378,10 @@ docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档�
 | 验证正确性     | 运行 test 脚本             | 只靠主观判断  |
 | 确认 API 版本  | 查 package.json + Context7 | 从记忆回忆    |
 | 验证文档真实性 | 执行测试、调用工具         | 盲目相信文档  |
+| 确认数据库目标 | 读取 `.env.dev` / 连接串   | 猜默认库名    |
+| 数据恢复与回放 | 先在 scratch 验证再应用    | 直接改目标库  |
+
+在 WMS 迁移项目里，工具优先尤其体现在数据库和报表上。比如历史数据迁移默认遵循 `dry-run → execute → validate`；库存价格层重建要看 `inventory-replay` 的验证结果；月度报表修改要同时检查后端服务、导出 helper 和 Vue 页面，不能只看页面截图。
 
 ## 8. 功能模块总览
 
@@ -359,10 +394,11 @@ docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档�
 | 通信 (Handoff)          | 基于文件系统的交接通信，确保信息不丢失                                                            |
 | Rules                   | 收集环境信息，维护共享的强制性、固定的、长期的规则                                                |
 | 参考资料 (Dependencies) | AI 撰写和收集的外部库参考资料                                                                     |
-| 需求 (Requirements)     | 人机交互层：分层真源（项目 / 主题 / 切片）+ `REQUIREMENT_CENTER` 索引                             |
+| 需求 (Requirements)     | 人机交互层：分层真源（项目 / 领域 / 可选切片）+ `REQUIREMENT_CENTER` 索引                         |
 | 工作区 (Workspace)      | 工作交代区 + 探索草稿区，承载 Dashboard、进展叙事、用户待确认、AI 待办、draft、决策日志与辅助资产 |
 | 任务 (Tasks)            | AI 自主规划区域，拆分任务、监控执行、交代结果                                                     |
 | 审查 (Fix Checklists)   | 审查结果的持久化记录                                                                              |
+| 验收 (Acceptance QA)    | 维护验收规格、运行记录和业务签收证据，判断需求级完成度                                            |
 | 经验 (Playbooks)        | 避免反复犯错，常用工作流固化                                                                      |
 
 ### 8.2 辅助模块
@@ -378,13 +414,15 @@ docs/tasks/TASK_CENTER.md                 任务索引看板（活跃 / 归档�
 
 Workspace 是独立于 requirement 和 task 的第三层，定位为"决策与 Draft 工作区"。它既服务人类决策者，也服务 AI 恢复上下文和继续推进工作。核心目标是: **让人类快速理解全局，让 AI 不依赖聊天记忆继续工作。**
 
+在实践中，Workspace 不必为每个任务强制创建。参考仓库会在需求探索、复杂 trade-off、管理层决策报告、报表深访或价格层解释这类场景使用 `docs/workspace/**`；而普通实现任务只需 requirement + task 就能闭环。这个边界可以防止 workspace 变成另一个执行日志堆。
+
 #### 8.3.1 三层定位
 
-| 文档层                          | 回答的问题                                                  | 服务对象                       |
-| ------------------------------- | ----------------------------------------------------------- | ------------------------------ |
-| `docs/requirements/`\*\* + 索引 | 用户要什么（哪一层真源）+ 当前执行状态 + 还待确认什么       | 意图确认、续接时先看索引       |
-| `docs/workspace/**`             | 当前到哪了、要决定什么、有哪些想法仍在草拟、AI 下一步做什么 | **人类决策者 + AI 恢复上下文** |
-| `docs/tasks/`\*\* + 索引        | 怎么执行、验证与 review 结论、续接命令与产物路径            | Agent 执行链                   |
+| 文档层                        | 回答的问题                                                  | 服务对象                       |
+| ----------------------------- | ----------------------------------------------------------- | ------------------------------ |
+| `docs/requirements/**` + 索引 | 用户要什么（哪一层真源）+ 当前执行状态 + 还待确认什么       | 意图确认、续接时先看索引       |
+| `docs/workspace/**`           | 当前到哪了、要决定什么、有哪些想法仍在草拟、AI 下一步做什么 | **人类决策者 + AI 恢复上下文** |
+| `docs/tasks/**` + 索引        | 怎么执行、验证与 review 结论、续接命令与产物路径            | Agent 执行链                   |
 
 #### 8.3.2 目录结构
 
@@ -426,7 +464,7 @@ Dashboard 规则:
 - 健康度只用三个状态: `●` 就绪 / `⚠` 有阻塞 / `○` 等待输入
 - 一行一个工作流，不展开细节
 - 只展示提炼后的确认项与推进状态，不直接贴原始脑暴
-- 工作流归档时，Dashboard 链接必须同步改到 `archive/`\*\*
+- 工作流归档时，Dashboard 链接必须同步改到 `archive/**`
 
 #### 8.3.4 工作流 README
 
@@ -517,13 +555,18 @@ Workspace 引用 requirement doc 和 task doc，但不重复它们的职责:
 ## 9. 项目文件结构映射
 
 ```text
-project/
+saifute-wms-server-nestjs-fix/
 ├── .cursor/
 │   ├── rules/*.mdc                    # L4 冻结规则
-│   └── skills/*/SKILL.md              # L3 结构化技能
+│   ├── skills/*/SKILL.md              # L3 结构化技能
+│   └── agents/*.md                    # Planner / Coder / Reviewer / QA 等角色说明
+├── .agents/                           # 可复用 agent skills
+├── .codex/                            # Codex 侧 agent 配置和 hooks
 ├── docs/
 │   ├── architecture/                  # 架构文档（模块边界、业务流程）
 │   ├── dependencies/                  # 外部库参考资料（Context7 刷新）
+│   ├── acceptance-tests/              # 验收规格、案例与运行报告
+│   ├── catalog/                       # 文档检索目录
 │   ├── playbooks/                     # L2 领域经验 + 自动化脚本
 │   │   ├── migration/playbook.md
 │   │   ├── orchestration/playbook.md
@@ -539,14 +582,10 @@ project/
 │   │   └── archive/
 │   │       ├── retained-completed/
 │   │       └── cleanup-candidate/
-│   ├── requirements/                  # 人机交互层（建议分层）
+│   ├── requirements/                  # 人机交互层
 │   │   ├── REQUIREMENT_CENTER.md      # 需求索引看板
-│   │   ├── PROJECT_REQUIREMENTS.md     # 项目级长期真源（可选命名）
-│   │   ├── topics/                    # 主题级长期真源
-│   │   ├── req-*.md                   # 活跃切片（闭环后迁入 archive）
-│   │   └── archive/
-│   │       ├── retained-completed/
-│   │       └── cleanup-candidate/
+│   │   ├── PROJECT_REQUIREMENTS.md    # 项目级长期真源
+│   │   └── domain/*.md                # 领域级长期真源
 │   ├── tasks/
 │   │   ├── TASK_CENTER.md             # 任务索引看板
 │   │   ├── task-*.md                  # 活跃执行简报
@@ -555,9 +594,14 @@ project/
 │   │       ├── retained-completed/
 │   │       └── cleanup-candidate/
 │   └── fix-checklists/                # 审查修复清单
+├── prisma/                            # Prisma schema 与 seed
 ├── scripts/                           # 辅助脚本工具
+├── src/modules/                       # NestJS 业务模块
+├── web/                               # Vue 3 前端工程
 └── test/                              # 测试套件
 ```
+
+对应到业务边界，参考仓库的 `src/modules/` 不是随意分目录，而是把关键所有权固定下来：`inventory-core` 是库存写入唯一入口，`approval` 收口审核状态，`rbac` 负责权限树和数据范围，`reporting` 承担跨域报表，`system-management` 承载系统配置和管理能力。Agent 编排文档必须理解这些边界，否则很容易把一次“报表显示调整”扩大成跨域 schema 变更。
 
 ## 10. 自我优化能力
 
